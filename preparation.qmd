@@ -1,0 +1,367 @@
+---
+title: Data Preparation
+author: Garv Agarwal
+format: typst
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+# Part I: Data Cleaning
+
+## Loading the Data
+
+```{r load-data}
+# Read the ciTBI dataset
+citbi <- read.csv("data/citbi.csv")
+
+# Read the data dictionary
+data_dict <- read_excel("data/citbi_data_dictionary.xlsx")
+
+# Initial exploration
+glimpse(citbi)
+```
+
+## 1. Addressing Missing Data
+
+The data dictionary indicates that missing values are coded in specific ways:
+
+- `91` represents pre-verbal patients (children who haven’t started speaking)
+- `92` represents variable-specific missing codes
+- Standard `NA` values also exist
+
+```{r handle-missing}
+# Check for NA values across all columns
+na_counts <- citbi %>% 
+  summarize(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "na_count")
+
+na_counts
+
+# Convert special codes (91, 92) to more meaningful representations
+citbi_clean <- citbi %>%
+  mutate(
+    # For pre-verbal indicators (91)
+    Amnesia_verb = case_when(
+      Amnesia_verb == 91 ~ NA_character_,
+      Amnesia_verb == 1 ~ "Yes",
+      Amnesia_verb == 0 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    HA_verb = case_when(
+      HA_verb == 91 ~ NA_character_,
+      HA_verb == 1 ~ "Yes",
+      HA_verb == 0 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    # For loss of consciousness length
+    LocLen = case_when(
+      LocLen == 91 ~ NA_character_,
+      LocLen == 0 ~ "None",
+      LocLen %in% 1:4 ~ as.character(LocLen),
+      TRUE ~ NA_character_
+    ),
+    # For seizure length
+    SeizLen = case_when(
+      SeizLen == 92 ~ NA_character_,
+      SeizLen == 0 ~ "None",
+      SeizLen == 1 ~ "Present",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+## 2. Renaming Variables
+
+```{r rename-vars}
+citbi_clean <- citbi_clean %>%
+  rename(
+    patient_id = PatientID,
+    amnesia_preverbal = Amnesia_verb,
+    loc_duration = LocLen,
+    seizure_present = Seiz,
+    seizure_duration = SeizLen,
+    acting_normal = ActNorm,
+    headache_preverbal = HA_verb,
+    vomiting = Vom,
+    dizziness = Dizz,
+    gcs_eye = GCSEye,
+    gcs_verbal = GCSVerbal,
+    gcs_motor = GCSMotor,
+    gcs_total = GCSTotal,
+    altered_mental_status = AMS,
+    skull_fracture = BasFx,
+    fontanelle_bulge = Font,
+    scalp_hematoma = Hem,
+    trauma_above_clavicle = Clav,
+    neurological_deficit = FocalNeuro,
+    other_injuries = OtherInj,
+    head_scan_required = HeadScanReq,
+    age_months = AgeInMonths,
+    sex = Sex,
+    ct_performed = CTPerformed,
+    death_from_tbi = DeathTBI,
+    citbi_outcome = ciTBI
+  )
+```
+
+## 3. Specifying Variable Types
+
+```{r convert-types}
+citbi_clean <- citbi_clean %>%
+  mutate(
+    # Convert binary indicators to logical
+    seizure_present = as.logical(seizure_present),
+    acting_normal = as.logical(acting_normal),
+    vomiting = as.logical(vomiting),
+    dizziness = as.logical(dizziness),
+    altered_mental_status = as.logical(altered_mental_status),
+    skull_fracture = as.logical(skull_fracture),
+    fontanelle_bulge = as.logical(fontanelle_bulge),
+    scalp_hematoma = as.logical(scalp_hematoma),
+    trauma_above_clavicle = as.logical(trauma_above_clavicle),
+    neurological_deficit = as.logical(neurological_deficit),
+    other_injuries = as.logical(other_injuries),
+    head_scan_required = as.logical(head_scan_required),
+    ct_performed = as.logical(ct_performed),
+    death_from_tbi = as.logical(death_from_tbi),
+    citbi_outcome = as.logical(citbi_outcome),
+    
+    # Convert character/categorical to factors
+    amnesia_preverbal = factor(amnesia_preverbal, levels = c("No", "Yes")),
+    headache_preverbal = factor(headache_preverbal, levels = c("No", "Yes")),
+    loc_duration = factor(loc_duration, levels = c("None", "1", "2", "3", "4")),
+    seizure_duration = factor(seizure_duration, levels = c("None", "Present")),
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    
+    # Create age in years for easier interpretation
+    age_years = age_months / 12
+  )
+
+# Verify the structure
+str(citbi_clean)
+```
+
+-----
+
+# Part II: Exploratory Data Analysis
+
+## 4. Missing Data Summary
+
+```{r missing-summary}
+missing_summary <- citbi_clean %>%
+  summarize(across(everything(), list(
+    n_missing = ~ sum(is.na(.)),
+    prop_missing = ~ mean(is.na(.))
+  ))) %>%
+  pivot_longer(
+    everything(), 
+    names_to = c("variable", ".value"), 
+    names_pattern = "(.+)_(n_missing|prop_missing)"
+  ) %>%
+  arrange(desc(prop_missing))
+
+missing_summary %>%
+  filter(n_missing > 0) %>%
+  knitr::kable(digits = 3, caption = "Variables with Missing Data")
+```
+
+**Observation:** The amnesia and headache variables that were pre-verbal coded now show as missing data, along with several other clinical variables.
+
+## 5. Distribution of Patient Ages
+
+```{r age-histogram, fig.width=8, fig.height=5}
+ggplot(citbi_clean, aes(x = age_months)) +
+  geom_histogram(bins = 40, fill = "#2C3E50", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribution of Patient Ages at Emergency Department Visit",
+    x = "Age (months)",
+    y = "Number of Patients"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+**Observation:** The distribution shows a bimodal pattern with peaks in very young infants and older children. There’s a notable cluster of patients under 12 months, which may reflect the vulnerability of infants to head trauma.
+
+## 6. Loss of Consciousness by ciTBI Outcome
+
+```{r loc-citbi-table}
+loc_citbi <- citbi_clean %>%
+  filter(!is.na(loc_duration), !is.na(citbi_outcome)) %>%
+  count(loc_duration, citbi_outcome, name = "count")
+
+loc_citbi %>%
+  pivot_wider(names_from = citbi_outcome, values_from = count, values_fill = 0) %>%
+  rename(`No ciTBI` = `FALSE`, `ciTBI` = `TRUE`) %>%
+  knitr::kable(caption = "Patient Counts by Loss of Consciousness Duration and ciTBI Outcome")
+```
+
+## 7. Visualizing Loss of Consciousness by ciTBI
+
+```{r loc-citbi-viz, fig.width=8, fig.height=5}
+ggplot(loc_citbi, aes(x = loc_duration, y = count, fill = citbi_outcome)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  scale_fill_manual(
+    values = c("FALSE" = "#3498DB", "TRUE" = "#E74C3C"),
+    labels = c("No ciTBI", "ciTBI")
+  ) +
+  labs(
+    title = "Loss of Consciousness Duration by ciTBI Outcome",
+    x = "Loss of Consciousness Duration (Category)",
+    y = "Number of Patients",
+    fill = "Outcome"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+**Observation:** Most patients had no loss of consciousness, and ciTBI cases are relatively rare across all LOC categories.
+
+## 8. Relationship between GCS Score, Age, and ciTBI
+
+### 8a. ciTBI Proportion by Age Group
+
+```{r citbi-by-age, fig.width=9, fig.height=5}
+citbi_clean %>%
+  mutate(age_group = cut(
+    age_years,
+    breaks = c(0, 2, 5, 10, 18),
+    labels = c("0-2 yrs", "2-5 yrs", "5-10 yrs", "10-18 yrs"),
+    include.lowest = TRUE
+  )) %>%
+  filter(!is.na(age_group), !is.na(citbi_outcome)) %>%
+  count(age_group, citbi_outcome) %>%
+  group_by(age_group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(aes(x = age_group, y = proportion, fill = citbi_outcome)) +
+  geom_col(position = "fill", alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("FALSE" = "#3498DB", "TRUE" = "#E74C3C"),
+    labels = c("No ciTBI", "ciTBI")
+  ) +
+  labs(
+    title = "Proportion of Patients with ciTBI Across Age Groups",
+    x = "Age Group",
+    y = "Proportion",
+    fill = "Outcome"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+### 8b. ciTBI Proportion by Age, Faceted by GCS
+
+```{r citbi-age-gcs-prop, fig.width=12, fig.height=8}
+citbi_clean %>%
+  mutate(age_group = cut(
+    age_years,
+    breaks = c(0, 2, 5, 10, 18),
+    labels = c("0-2", "2-5", "5-10", "10-18"),
+    include.lowest = TRUE
+  )) %>%
+  filter(!is.na(age_group), !is.na(citbi_outcome), !is.na(gcs_total)) %>%
+  count(age_group, citbi_outcome, gcs_total) %>%
+  group_by(age_group, gcs_total) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(aes(x = age_group, y = proportion, fill = citbi_outcome)) +
+  geom_col(position = "fill", alpha = 0.8) +
+  facet_wrap(~ gcs_total, ncol = 5) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("FALSE" = "#3498DB", "TRUE" = "#E74C3C"),
+    labels = c("No ciTBI", "ciTBI")
+  ) +
+  labs(
+    title = "ciTBI Proportion by Age Group, Faceted by GCS Total Score",
+    x = "Age Group (years)",
+    y = "Proportion",
+    fill = "Outcome"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7)
+  )
+```
+
+### 8c. ciTBI Count by Age, Faceted by GCS
+
+```{r citbi-age-gcs-count, fig.width=12, fig.height=8}
+citbi_clean %>%
+  mutate(age_group = cut(
+    age_years,
+    breaks = c(0, 2, 5, 10, 18),
+    labels = c("0-2", "2-5", "5-10", "10-18"),
+    include.lowest = TRUE
+  )) %>%
+  filter(!is.na(age_group), !is.na(citbi_outcome), !is.na(gcs_total)) %>%
+  count(age_group, citbi_outcome, gcs_total) %>%
+  ggplot(aes(x = age_group, y = n, fill = citbi_outcome)) +
+  geom_col(alpha = 0.8) +
+  facet_wrap(~ gcs_total, ncol = 5) +
+  scale_fill_manual(
+    values = c("FALSE" = "#3498DB", "TRUE" = "#E74C3C"),
+    labels = c("No ciTBI", "ciTBI")
+  ) +
+  labs(
+    title = "Number of Patients with ciTBI by Age and GCS Score",
+    x = "Age Group (years)",
+    y = "Count",
+    fill = "Outcome"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7)
+  )
+```
+
+**Observation:** Lower GCS scores show higher proportions of ciTBI cases. Most patients have GCS scores of 15 (normal consciousness).
+
+## 9. Scatter Plot: Age vs GCS Total Score
+
+```{r age-gcs-scatter, fig.width=9, fig.height=6}
+citbi_clean %>%
+  filter(!is.na(gcs_total), !is.na(age_years)) %>%
+  ggplot(aes(x = age_years, y = gcs_total, color = citbi_outcome)) +
+  geom_jitter(alpha = 0.4, width = 0.2, height = 0.2, size = 1.5) +
+  scale_color_manual(
+    values = c("FALSE" = "#3498DB", "TRUE" = "#E74C3C"),
+    labels = c("No ciTBI", "ciTBI")
+  ) +
+  labs(
+    title = "Glasgow Coma Scale Score by Patient Age",
+    x = "Age (years)",
+    y = "GCS Total Score",
+    color = "Outcome"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+**Observation:** Most patients cluster at GCS = 15 across all ages. Lower GCS scores show higher ciTBI incidence (red points), but these are much less common.
+
+## 10. Summary Statistics: Clinical Features by Sex
+
+```{r clinical-summary}
+citbi_clean %>%
+  filter(!is.na(sex)) %>%
+  group_by(sex, citbi_outcome) %>%
+  summarize(
+    n_patients = n(),
+    mean_age_months = mean(age_months, na.rm = TRUE),
+    mean_gcs = mean(gcs_total, na.rm = TRUE),
+    prop_altered_mental = mean(altered_mental_status, na.rm = TRUE),
+    prop_skull_fracture = mean(skull_fracture, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  knitr::kable(
+    digits = 2,
+    caption = "Clinical Characteristics by Sex and ciTBI Outcome"
+  )
+```
+
+**Observation:** Males appear to have slightly higher representation in the dataset. Patients with ciTBI show lower mean GCS scores and higher rates of skull fractures and altered mental status across both sexes.

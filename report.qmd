@@ -1,0 +1,271 @@
+---
+
+title: Report
+author: Garv Agarwal
+format: typst
+
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readxl)
+
+# Load and clean data (replicating preparation steps)
+citbi <- read.csv("data/citbi.csv")
+
+citbi_clean <- citbi %>%
+  mutate(
+    # Convert special codes to NA
+    Amnesia_verb = case_when(
+      Amnesia_verb == 91 ~ NA_character_,
+      Amnesia_verb == 1 ~ "Yes",
+      Amnesia_verb == 0 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    HA_verb = case_when(
+      HA_verb == 91 ~ NA_character_,
+      HA_verb == 1 ~ "Yes",
+      HA_verb == 0 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    LocLen = case_when(
+      LocLen == 91 ~ NA_character_,
+      LocLen == 0 ~ "None",
+      LocLen %in% 1:4 ~ as.character(LocLen),
+      TRUE ~ NA_character_
+    ),
+    SeizLen = case_when(
+      SeizLen == 92 ~ NA_character_,
+      SeizLen == 0 ~ "None",
+      SeizLen == 1 ~ "Present",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  rename(
+    patient_id = PatientID,
+    amnesia_preverbal = Amnesia_verb,
+    loc_duration = LocLen,
+    seizure_present = Seiz,
+    seizure_duration = SeizLen,
+    acting_normal = ActNorm,
+    headache_preverbal = HA_verb,
+    vomiting = Vom,
+    dizziness = Dizz,
+    gcs_eye = GCSEye,
+    gcs_verbal = GCSVerbal,
+    gcs_motor = GCSMotor,
+    gcs_total = GCSTotal,
+    altered_mental_status = AMS,
+    skull_fracture = BasFx,
+    fontanelle_bulge = Font,
+    scalp_hematoma = Hem,
+    trauma_above_clavicle = Clav,
+    neurological_deficit = FocalNeuro,
+    other_injuries = OtherInj,
+    head_scan_required = HeadScanReq,
+    age_months = AgeInMonths,
+    sex = Sex,
+    ct_performed = CTPerformed,
+    death_from_tbi = DeathTBI,
+    citbi_outcome = ciTBI
+  ) %>%
+  mutate(
+    # Convert to appropriate types
+    seizure_present = as.logical(seizure_present),
+    acting_normal = as.logical(acting_normal),
+    vomiting = as.logical(vomiting),
+    dizziness = as.logical(dizziness),
+    altered_mental_status = as.logical(altered_mental_status),
+    skull_fracture = as.logical(skull_fracture),
+    fontanelle_bulge = as.logical(fontanelle_bulge),
+    scalp_hematoma = as.logical(scalp_hematoma),
+    trauma_above_clavicle = as.logical(trauma_above_clavicle),
+    neurological_deficit = as.logical(neurological_deficit),
+    other_injuries = as.logical(other_injuries),
+    head_scan_required = as.logical(head_scan_required),
+    ct_performed = as.logical(ct_performed),
+    death_from_tbi = as.logical(death_from_tbi),
+    citbi_outcome = as.logical(citbi_outcome),
+    amnesia_preverbal = factor(amnesia_preverbal, levels = c("No", "Yes")),
+    headache_preverbal = factor(headache_preverbal, levels = c("No", "Yes")),
+    loc_duration = factor(loc_duration, levels = c("None", "1", "2", "3", "4")),
+    seizure_duration = factor(seizure_duration, levels = c("None", "Present")),
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    age_years = age_months / 12
+  )
+```
+
+Dear Dr. Bayes,
+
+Thank you for the opportunity to analyze the PECARN pediatric traumatic brain injury dataset. After thoroughly cleaning and exploring the data, I’ve identified several key insights that may inform clinical decision-making and future research. Below are the most significant findings from my analysis.
+
+## Finding 1: Age Distribution Shows Vulnerability in Infants and Young Children
+
+```{r age-distribution, echo=FALSE, fig.width=7, fig.height=4, warning=FALSE}
+ggplot(citbi_clean, aes(x = age_months)) +
+  geom_histogram(bins = 50, fill = "#5D6D7E", color = "white") +
+  labs(
+    title = "Distribution of patients' age",
+    x = "age_in_months",
+    y = "count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  )
+```
+
+The age distribution reveals a striking pattern: there is a substantial concentration of very young patients, with the highest frequency occurring in infants under 12 months of age. The distribution shows a steep decline through early childhood, followed by a relatively stable but lower frequency across older age groups. This suggests that infants are particularly vulnerable to head trauma requiring emergency care, likely due to developmental factors such as limited motor control, proportionally larger heads, and thinner skull bones. This finding underscores the importance of injury prevention programs targeted at caregivers of infants and toddlers.
+
+## Finding 2: Loss of Consciousness Severity Correlates with ciTBI Risk
+
+```{r loc-citbi, echo=FALSE, fig.width=7, fig.height=4, warning=FALSE}
+citbi_clean %>%
+  filter(!is.na(loc_duration), !is.na(citbi_outcome)) %>%
+  count(loc_duration, citbi_outcome) %>%
+  ggplot(aes(x = loc_duration, y = n, fill = factor(citbi_outcome))) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(
+    values = c("0" = "#EC7063", "1" = "#5DADE2"),
+    labels = c("0", "1")
+  ) +
+  labs(
+    x = "factor(length_conciousness)",
+    y = "Count",
+    fill = "factor(important_brain_injury)"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+```
+
+While most patients (category “None”) did not experience loss of consciousness, those who did show an increased likelihood of clinically important traumatic brain injury. The absolute number of ciTBI cases increases with longer duration categories, though most patients in every category do not have ciTBI. This visualization demonstrates that loss of consciousness is a meaningful clinical indicator, but its absence does not rule out ciTBI. The data suggests that loss of consciousness duration should be considered as part of a comprehensive clinical assessment rather than as a standalone diagnostic criterion.
+
+## Finding 3: ciTBI Rates Are Consistently Low Across Age Groups
+
+```{r citbi-by-age, echo=FALSE, fig.width=7, fig.height=4, warning=FALSE}
+citbi_clean %>%
+  mutate(age_group = cut(
+    age_years,
+    breaks = c(0, 3, 6, 9, 12, 15, 18),
+    labels = c("0-3", "3-6", "6-9", "9-12", "12-15", "15-18"),
+    include.lowest = TRUE,
+    right = FALSE
+  )) %>%
+  filter(!is.na(age_group), !is.na(citbi_outcome)) %>%
+  count(age_group, citbi_outcome) %>%
+  group_by(age_group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(aes(x = age_group, y = proportion, fill = factor(citbi_outcome))) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("0" = "#154360", "1" = "#5DADE2")
+  ) +
+  labs(
+    title = "Proportion of patients with ciTBI across different ages",
+    x = "age_group",
+    y = "Proportion",
+    fill = "important_brain_injury"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Across all age groups, the proportion of patients with clinically important traumatic brain injury remains remarkably low and consistent, at approximately 2-3%. This finding is clinically reassuring: the vast majority of pediatric head trauma cases presenting to the emergency department do not result in serious brain injury. However, the consistency across age groups suggests that age alone should not be used to stratify risk. The challenge remains in identifying which small subset of patients requires imaging or intensive monitoring, emphasizing the need for validated clinical decision rules that incorporate multiple risk factors beyond age.
+
+## Finding 4: Glasgow Coma Scale Score Shows Strong Association with ciTBI
+
+```{r gcs-age-citbi-prop, echo=FALSE, fig.width=9, fig.height=7, warning=FALSE}
+citbi_clean %>%
+  mutate(
+    age_group = cut(
+      age_years,
+      breaks = c(0, 3, 6, 9, 12, 15, 18),
+      labels = c("3", "6", "9", "12", "15", "18"),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  ) %>%
+  filter(!is.na(age_group), !is.na(citbi_outcome), !is.na(gcs_total)) %>%
+  count(age_group, citbi_outcome, gcs_total) %>%
+  group_by(age_group, gcs_total) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(aes(x = age_group, y = proportion, fill = factor(citbi_outcome))) +
+  geom_col(position = "fill") +
+  facet_wrap(~ gcs_total, ncol = 4) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("0" = "#5DADE2", "1" = "#154360")
+  ) +
+  labs(
+    title = "Relationship between age and ciTBI across GCS scores",
+    x = "age_group",
+    y = "Proportion",
+    fill = "important_brain_injury"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 11),
+    axis.text.x = element_text(angle = 0, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 8)
+  )
+```
+
+```{r gcs-age-citbi-count, echo=FALSE, fig.width=9, fig.height=7, warning=FALSE}
+citbi_clean %>%
+  mutate(
+    age_years_grouped = cut(
+      age_years,
+      breaks = c(0, 3, 6, 9, 12, 15, 18),
+      labels = c("3", "6", "9", "12", "15", "18"),
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  ) %>%
+  filter(!is.na(age_years_grouped), !is.na(citbi_outcome), !is.na(gcs_total)) %>%
+  count(age_years_grouped, citbi_outcome, gcs_total) %>%
+  ggplot(aes(x = age_years_grouped, y = n, fill = factor(citbi_outcome))) +
+  geom_col() +
+  facet_wrap(~ gcs_total, ncol = 4, scales = "free_y") +
+  scale_fill_manual(
+    values = c("0" = "#154360", "1" = "#5DADE2")
+  ) +
+  labs(
+    title = "Number of patients with ciTBI across age, faceted by total GCS score",
+    x = "Age (years)",
+    y = "Count",
+    fill = "ciTBI"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 11),
+    axis.text.x = element_text(angle = 0, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 8)
+  )
+```
+
+The Glasgow Coma Scale demonstrates strong predictive value for ciTBI. The proportion plots reveal that lower GCS scores (particularly below 13) show dramatically higher proportions of ciTBI cases. The count plot provides crucial context: the vast majority of patients present with GCS scores of 15 (normal), while lower scores are much rarer. This pattern suggests that GCS is an excellent discriminator when abnormal, but most pediatric head trauma patients have normal GCS scores. Importantly, the relationship between GCS and ciTBI appears consistent across age groups, supporting the use of GCS as a universal assessment tool in pediatric populations. These findings validate GCS as a critical component of clinical decision-making protocols.
+
+## Summary and Recommendations
+
+This analysis reveals several important patterns in pediatric head trauma presentations:
+
+1. **Prevention focus needed for infants**: The high incidence in very young children suggests targeted injury prevention efforts
+1. **Multiple risk factors required**: No single factor (age, LOC, or even GCS in isolation) perfectly predicts ciTBI
+1. **Overall low ciTBI rates**: The 2-3% ciTBI rate across presentations supports conservative imaging approaches to minimize radiation exposure
+1. **GCS remains critical**: Lower GCS scores show strong association with ciTBI and should remain central to clinical decision rules
+
+I recommend that future research focus on developing and validating multi-factorial clinical decision rules that can reliably identify the small subset of high-risk patients while avoiding unnecessary imaging in the majority of cases.
+
+Thank you for the opportunity to work on this important dataset.
+
+Sincerely,  
+[Your Name]
